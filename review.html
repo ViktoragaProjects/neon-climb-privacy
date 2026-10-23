@@ -10,8 +10,11 @@
   (Tools/Supabase/leaderboard.sql, lb__check_reports). Published on the privacy
   site (viktoragaprojects/neon-climb-privacy). It holds nothing secret: the key
   below is the game's own publishable key, and only the one-time token in the
-  email's link can open a review. Nothing happens until Confirm is pressed - mail
-  scanners open links on their own, and that must never ban anyone.
+  email's link can open a review.
+  One tap (Kosta, 2026-10-24): the button picked in the email is carried out as
+  soon as the page RUNS - no second press. Mail scanners that open links mostly
+  just fetch the HTML and never run this script; an automated browser that does
+  run it says so (navigator.webdriver) and only gets the buttons.
 -->
 <style>
   :root { color-scheme: light dark; }
@@ -78,8 +81,13 @@
 
   if (!player || !token) { gone(); return; }
 
+  // the email's button, straight away - unless a robot is the one looking
+  var oneTap = !!LABEL[pick] && !navigator.webdriver;
+
   call('lb_review_info', { p_player: player, p_token: token }).then(function (r) {
     if (!r || !r.ok) { gone(); return; }
+    caseInfo = r;
+    if (oneTap) { out.innerHTML = '<p class="meta">' + LABEL[pick] + '…</p>'; decide(pick); return; }
     var html = '<p class="name">' + esc(r.name) + '</p>'
       + '<p>' + esc(r.reports) + ' different players reported this name. It is hidden on the board until you decide.</p>'
       + '<table>'
@@ -104,6 +112,8 @@
     out.innerHTML = '<p class="done">Could not reach the leaderboard. Check your connection and reload.</p>';
   });
 
+  var caseInfo = null;
+
   function decide(a) {
     Array.prototype.forEach.call(out.querySelectorAll('button'), function (b) { b.disabled = true; });
     call('lb_review', { p_player: player, p_token: token, p_action: a }).then(function (r) {
@@ -111,10 +121,20 @@
       var msg = a === 'keep' ? '"' + esc(r.name) + '" is back on the board.'
               : a === 'reset' ? '"' + esc(r.old_name) + '" is now ' + esc(r.name) + '.'
               : '"' + esc(r.old_name) + '" is banned. Their scores are hidden.';
+      var undo = a === 'ban' ? 'To undo the ban: <code>select lb_admin_unban(\'' + esc(player) + '\');</code>'
+               : a === 'keep' ? 'To act on it after all: <code>select lb_admin_reset_name(\'' + esc(player)
+                   + '\');</code> or <code>select lb_admin_ban(\'' + esc(player) + '\');</code>'
+               : 'They can pick a new name in the game straight away.';
       out.innerHTML = '<p class="done">Done — ' + msg + '</p>'
-        + '<p class="note">Changed your mind? In the Supabase SQL editor: '
-        + '<code>select lb_admin_unban(\'' + esc(player) + '\');</code> undoes a ban.</p>';
+        + (caseInfo ? '<p class="note">' + esc(caseInfo.reports) + ' reports · best score '
+            + Number(caseInfo.best || 0).toLocaleString('en-US') + ' · ' + esc(caseInfo.platform)
+            + ' · joined ' + esc(caseInfo.joined) + '</p>' : '')
+        + '<p class="note">' + undo + ' (Supabase → SQL Editor)</p>';
     }, function () {
+      if (oneTap) {
+        out.innerHTML = '<p class="done">Could not reach the leaderboard. Check your connection and reload this page.</p>';
+        return;
+      }
       Array.prototype.forEach.call(out.querySelectorAll('button'), function (b) { b.disabled = false; });
       document.getElementById('hint').textContent = 'Could not reach the leaderboard. Try again.';
     });
