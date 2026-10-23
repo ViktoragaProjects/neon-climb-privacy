@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Name review — Neon Climb</title>
+<!--
+  The page behind the KEEP / RESET NAME / BAN PLAYER buttons in a report email
+  (Tools/Supabase/leaderboard.sql, lb__check_reports). Published on the privacy
+  site (viktoragaprojects/neon-climb-privacy). It holds nothing secret: the key
+  below is the game's own publishable key, and only the one-time token in the
+  email's link can open a review. Nothing happens until Confirm is pressed - mail
+  scanners open links on their own, and that must never ban anyone.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0 auto; max-width: 560px; padding: 2.5rem 1.25rem 4rem;
+    font: 16px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #fff; color: #1c1c1e;
+  }
+  @media (prefers-color-scheme: dark) { body { background: #121216; color: #e6e6ea; } }
+  h1 { font-size: 1.6rem; margin: 0 0 1rem; }
+  .meta { opacity: .65; font-size: .9rem; }
+  table { border-collapse: collapse; margin: 1rem 0 1.5rem; }
+  td { padding: .2rem 1.2rem .2rem 0; }
+  td:first-child { opacity: .65; }
+  .name { font-size: 1.35rem; font-weight: 700; }
+  button {
+    font: inherit; font-weight: 700; color: #fff; border: 0; border-radius: 8px;
+    padding: .8rem 1.2rem; margin: 0 .5rem .6rem 0; cursor: pointer;
+  }
+  button[disabled] { opacity: .45; cursor: default; }
+  .keep { background: #0b7a55; } .reset { background: #b07a00; } .ban { background: #b0202c; }
+  .chosen { outline: 3px solid #6cc0ff; outline-offset: 2px; }
+  .note { font-size: .9rem; opacity: .7; }
+  .done { font-size: 1.1rem; font-weight: 700; margin-top: 1rem; }
+</style>
+</head>
+<body>
+<h1>Neon Climb — name review</h1>
+<div id="out"><p class="meta">Loading…</p></div>
+
+<script>
+(function () {
+  var URL = 'https://vejpijlyslmmnrqshexo.supabase.co/rest/v1/rpc/';
+  var KEY = 'sb_publishable_KzebAP3KzhDuIaoEryszSw_-rfbMLyU';
+  var q = new URLSearchParams(location.search);
+  var player = q.get('p'), token = q.get('t'), pick = q.get('a');
+  var out = document.getElementById('out');
+  var LABEL = { keep: 'KEEP', reset: 'RESET NAME', ban: 'BAN PLAYER' };
+  var WHAT = {
+    keep: 'The name comes back on the board and this name will not be flagged again.',
+    reset: 'The name becomes a Climber_ name. The player stays on the board and can pick a new name.',
+    ban: 'All of their scores disappear from every board and new ones are refused.'
+  };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function call(fn, body) {
+    return fetch(URL + fn, {
+      method: 'POST',
+      headers: { 'apikey': KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.json(); });
+  }
+
+  function gone() {
+    out.innerHTML = '<p class="done">This review is already done, or the link is no longer valid.</p>'
+      + '<p class="note">Each email\'s buttons work once. Pending reviews are also listed in Supabase: '
+      + '<code>select * from lb_pending_reviews;</code></p>';
+  }
+
+  if (!player || !token) { gone(); return; }
+
+  call('lb_review_info', { p_player: player, p_token: token }).then(function (r) {
+    if (!r || !r.ok) { gone(); return; }
+    var html = '<p class="name">' + esc(r.name) + '</p>'
+      + '<p>' + esc(r.reports) + ' different players reported this name. It is hidden on the board until you decide.</p>'
+      + '<table>'
+      + '<tr><td>Best score</td><td>' + Number(r.best || 0).toLocaleString('en-US') + '</td></tr>'
+      + '<tr><td>Platform</td><td>' + esc(r.platform) + '</td></tr>'
+      + '<tr><td>Joined</td><td>' + esc(r.joined) + '</td></tr>'
+      + '<tr><td>Flagged</td><td>' + esc(r.flagged) + ' UTC</td></tr>'
+      + '</table>'
+      + '<div id="btns">'
+      + ['keep', 'reset', 'ban'].map(function (a) {
+          return '<button class="' + a + (a === pick ? ' chosen' : '') + '" data-a="' + a + '">'
+            + LABEL[a] + '</button>';
+        }).join('')
+      + '</div>'
+      + '<p class="note" id="hint">' + (LABEL[pick] ? 'You picked <b>' + LABEL[pick] + '</b> in the email. '
+          + WHAT[pick] + ' Press it to confirm, or choose another.' : 'Choose what happens to this name.') + '</p>';
+    out.innerHTML = html;
+    Array.prototype.forEach.call(out.querySelectorAll('button'), function (b) {
+      b.addEventListener('click', function () { decide(b.getAttribute('data-a')); });
+    });
+  }, function () {
+    out.innerHTML = '<p class="done">Could not reach the leaderboard. Check your connection and reload.</p>';
+  });
+
+  function decide(a) {
+    Array.prototype.forEach.call(out.querySelectorAll('button'), function (b) { b.disabled = true; });
+    call('lb_review', { p_player: player, p_token: token, p_action: a }).then(function (r) {
+      if (!r || !r.ok) { gone(); return; }
+      var msg = a === 'keep' ? '"' + esc(r.name) + '" is back on the board.'
+              : a === 'reset' ? '"' + esc(r.old_name) + '" is now ' + esc(r.name) + '.'
+              : '"' + esc(r.old_name) + '" is banned. Their scores are hidden.';
+      out.innerHTML = '<p class="done">Done — ' + msg + '</p>'
+        + '<p class="note">Changed your mind? In the Supabase SQL editor: '
+        + '<code>select lb_admin_unban(\'' + esc(player) + '\');</code> undoes a ban.</p>';
+    }, function () {
+      Array.prototype.forEach.call(out.querySelectorAll('button'), function (b) { b.disabled = false; });
+      document.getElementById('hint').textContent = 'Could not reach the leaderboard. Try again.';
+    });
+  }
+})();
+</script>
+</body>
+</html>
